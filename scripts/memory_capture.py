@@ -566,6 +566,28 @@ def manifest_payload(
     }
 
 
+TEXT_ARCHIVE_SUFFIXES = frozenset(
+    {".md", ".markdown", ".txt", ".json", ".toml", ".yaml", ".yml", ".csv"}
+)
+
+
+def archive_entry_bytes(path: Path) -> bytes:
+    """Return the bytes to store for one archive entry.
+
+    Text entries are stored with LF line endings so a backup written on one
+    platform restores byte-identically on another; binary entries are copied
+    verbatim.
+    """
+    data = path.read_bytes()
+    if path.suffix.lower() not in TEXT_ARCHIVE_SUFFIXES:
+        return data
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    return text.replace("\r\n", "\n").replace("\r", "\n").encode("utf-8")
+
+
 def create_archive(
     *,
     workspace: Path,
@@ -585,7 +607,9 @@ def create_archive(
     with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("manifest.json", json.dumps(payload, ensure_ascii=False, indent=2))
         for entry, archive_name in zip(entries, included_paths):
-            archive.write(entry, archive_name)
+            info = zipfile.ZipInfo.from_file(entry, archive_name)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, archive_entry_bytes(entry))
     return archive_path
 
 
